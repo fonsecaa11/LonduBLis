@@ -11,7 +11,7 @@ from urllib.parse import quote
 geckodriver_path = "C:\\Users\\gonca\\OneDrive\\Ambiente de Trabalho\\Projeto\\geckodriver.exe"
 
 # Caminho para o ficheiro de localidades
-distritos_path = "C:\\Users\\gonca\\OneDrive\\Ambiente de Trabalho\\Projeto\\distritos.txt"
+distritos_path = "C:\\Users\\gonca\\OneDrive\\Ambiente de Trabalho\\Projeto\\data\\txt\\distritos.txt"
 
 # Configura o GeckoDriver
 service = Service(geckodriver_path)

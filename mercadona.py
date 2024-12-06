@@ -16,8 +16,8 @@ distritos_path = "C:\\Users\\gonca\\OneDrive\\Ambiente de Trabalho\\Projeto\\dat
 # Configura o GeckoDriver
 service = Service(geckodriver_path)
 
-# Conectar ao Banco de Dados
-def conectar_banco():
+# Conectar á Base de Dados
+def conectar_bd():
     return mysql.connector.connect(
         host="localhost",  
         user="root",  
@@ -25,7 +25,7 @@ def conectar_banco():
         database="projeto" 
     )
 
-# Inserir loja no banco de dados
+# Inserir loja na base de dados
 def inserir_loja(conn, nome, endereco, codigo_postal, telefone, latitude, longitude):
     cursor = conn.cursor()
     query = """
@@ -82,7 +82,7 @@ def carregar_mais_lojas(driver):
 def processar_localidades():
     driver = webdriver.Firefox(service=service)
     driver.maximize_window()
-    conn = conectar_banco()
+    conn = conectar_bd()
 
     try:
         # Ler o ficheiro de localidades

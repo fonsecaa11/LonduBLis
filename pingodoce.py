@@ -1,100 +1,68 @@
-import re
-import mysql.connector
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from urllib.parse import quote
+import mysql.connector
+import re
 
-# Caminho para o GeckoDriver
-geckodriver_path = "C:\\Users\\gonca\\OneDrive\\Ambiente de Trabalho\\Projeto\\geckodriver.exe"
+# Configuração do Selenium
+driver = webdriver.Chrome()
+driver.get('https://www.pingodoce.pt/lojas/?tipo-loja=lojas')
+driver.maximize_window()
 
-# Caminho para o ficheiro de localidades
-localidades_path = "C:\\Users\\gonca\\OneDrive\\Ambiente de Trabalho\\Projeto\\data\\txt\\localidades.txt"
+# Aguardar até que os links das lojas estejam disponíveis
+try:
+    WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'a.js-map-sidebar-card')))
+    lojas_links = driver.find_elements(By.CSS_SELECTOR, 'a.js-map-sidebar-card')
 
-# Configura o GeckoDriver
-service = Service(executable_path=geckodriver_path)
+    # Extrair todos os URLs
+    urls = [loja.get_attribute('href') for loja in lojas_links]
+except Exception as e:
+    print(f"Erro ao carregar links das lojas: {e}")
+    driver.quit()
+    exit()
 
-# Conectar ao Banco de Dados
-def conectar_banco():
-    return mysql.connector.connect(
-        host="localhost",  
-        user="root",  
-        password="1234",  
-        database="projeto" 
-    )
-
-# Inserir loja no banco de dados
-def inserir_loja(conn, codigo_postal, nome, endereco, telemovel):
-    cursor = conn.cursor()
-    query = """
-        INSERT INTO lojas_pingodoce (codigo_postal_id, nome, endereco, telemovel)
-        VALUES (%s, %s, %s, %s)
-    """
-    cursor.execute(query, (codigo_postal, nome, endereco, telemovel))
-    conn.commit()
-    cursor.close()
+# Conectar á base de dados MySQL
+conn = mysql.connector.connect(
+    host="localhost", 
+    user="root", 
+    password="1234", 
+    database="projeto"
+)
+cursor = conn.cursor()
 
 # Inicializar o WebDriver e processar os dados
-def processar_localidades():
-    driver = webdriver.Firefox(service=service)
-    conn = conectar_banco()
-
+for url in urls:
     try:
-        # Ler o ficheiro de localidades
-        with open(localidades_path, "r", encoding="ISO-8859-1") as file:
-            localidades = [linha.strip() for linha in file.readlines() if linha.strip()]
+        driver.get(url)  # Abrir o link da loja
+        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div.store-information')))
 
-        for localidade in localidades:
-            try:
-                # Codificar o nome da localidade para URL
-                url = f"https://www.pingodoce.pt/lojas/?l={quote(localidade)}"
-                driver.get(url)
+        nome = driver.find_element(By.CSS_SELECTOR, '.title').text.strip()
 
-                # Verificar rapidamente se existem lojas na página
-                lojas_links = WebDriverWait(driver, 3).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a.js-map-sidebar-card'))
-                )
+        endereco = driver.find_elements(By.CSS_SELECTOR, '.store-information-details .address-container p')
+        endereco_completo = ' '.join([e.text for e in endereco]) if endereco else "Endereço não disponível"
 
-                # Processar cada loja
-                for i in range(len(lojas_links)):
-                    lojas_links = WebDriverWait(driver, 3).until(
-                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a.js-map-sidebar-card'))
-                    )
+        # Validar se há pelo menos um elemento na lista antes de acessar o último item
+        codigo_postal = endereco[-1].text if endereco and len(endereco) > 0 else "Código postal não disponível"
 
-                    loja_link = lojas_links[i]
-                    loja_url = loja_link.get_attribute('href')
-                    driver.get(loja_url)
+        telemovel_element = driver.find_elements(By.CSS_SELECTOR, '.store-information-details .contents span')
+        telemovel = telemovel_element[0].text if telemovel_element else "Telemóvel não disponível"
 
-                    # Capturar os dados da loja
-                    nome_loja = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, '.title'))
-                    ).text.strip()
+        iframe_src = driver.find_element(By.CSS_SELECTOR, 'iframe[title="Mapa da localização"]').get_attribute('src')
+        latitude, longitude = re.search(r"center=([\d.-]+),([\d.-]+)", iframe_src).groups()
 
-                    endereco = driver.find_elements(By.CSS_SELECTOR, '.store-information-details .address-container p')
-                    endereco_completo = ' '.join([e.text for e in endereco])
+        # Inserir dados na base de dados
+        cursor.execute("""
+            INSERT INTO lojas_pingodoce (nome, endereco, codigo_postal, telemovel, latitude, longitude)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (nome, endereco_completo, codigo_postal, telemovel, latitude, longitude))
+        conn.commit()
+        print(f"Loja {nome} inserida com sucesso.")
 
-                    endereco_sem_cp = re.sub(r'\d{4}-\d{3}', '', endereco_completo).strip()
-                    codigo_postal = endereco[-1].text
-                    telemovel = driver.find_element(By.CSS_SELECTOR, '.store-information-details .contents span').text
+    except Exception as e:
+        print(f"Erro ao processar loja em {url}: {e}")
 
-                    # Inserir no banco de dados
-                    inserir_loja(conn, codigo_postal, nome_loja, endereco_sem_cp, telemovel)
-
-                    # Voltar para a lista de lojas
-                    driver.back()
-
-            except Exception as e:
-                # Logar erros e continuar para o próximo concelho
-                with open("erros.log", "a", encoding="utf-8") as log_file:
-                    log_file.write(f"Erro ao processar o concelho '{localidade}': {str(e)}\n")
-                continue
-
-    finally:
-        conn.close()
-        driver.quit()
-
-# Executar o script
-if __name__ == "__main__":
-    processar_localidades()
+# Fechar conexões
+cursor.close()
+conn.close()
+driver.quit()

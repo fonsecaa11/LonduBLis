@@ -2,21 +2,26 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import mysql.connector
+import time
+import pandas as pd
+
 
 # Configuração do Selenium
 driver = webdriver.Chrome()
-driver.get('https://www.intermarche.pt/lojas/')
 driver.maximize_window()
+driver.get('https://www.intermarche.pt/lojas/')
+
+time.sleep(5)
+
+dados = []
 
 # Aceitar cookies
 try:
-    WebDriverWait(driver, 5).until(
-        EC.element_to_be_clickable((By.CSS_SELECTOR, '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'))
-    ).click()
-    print("Cookies aceites.")
-except Exception as e:
-    print(f"Erro ao aceitar cookies: {e}")
+    botao_cookies = driver.find_element(By.ID, 'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll')
+    botao_cookies.click()
+    time.sleep(2)
+except:
+    pass
 
 # Aguardar até que os links das lojas estejam disponíveis
 try:
@@ -30,15 +35,6 @@ except Exception as e:
     driver.quit()
     exit()
 
-# Conectar á base de dados MySQL
-conn = mysql.connector.connect(
-    host="localhost", 
-    user="root", 
-    password="1234", 
-    database="projeto"
-)
-cursor = conn.cursor()
-
 # Abrir cada link e processar os dados
 for url in urls:
     try:
@@ -46,27 +42,43 @@ for url in urls:
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div#pos-data')))
 
         # Extrair informações da loja
-        nome = driver.find_element(By.CSS_SELECTOR, 'h1[itemprop="name"]').text
-        endereco = driver.find_element(By.CSS_SELECTOR, 'span[itemprop="streetAddress"]').text
-        codigo_postal = driver.find_element(By.CSS_SELECTOR, 'span[itemprop="postalCode"]').text
-        telefone_elementos = driver.find_elements(By.CSS_SELECTOR, 'a[itemprop="telephone"]')
-        telefone = telefone_elementos[0].text if telefone_elementos else None
-        email = driver.find_element(By.CSS_SELECTOR, 'a[itemprop="email"]').text
-        latitude = driver.find_element(By.CSS_SELECTOR, 'div#pos-map').get_attribute('data-latitude')
-        longitude = driver.find_element(By.CSS_SELECTOR, 'div#pos-map').get_attribute('data-longitude')
+        try:
+            nome = driver.find_element(By.CSS_SELECTOR, 'h1[itemprop="name"]').text
+        except:
+            nome = None
 
-        # Inserir dados no banco de dados
-        cursor.execute("""
-            INSERT INTO lojas_intermache (nome, endereco, codigo_postal, telefone, email, latitude, longitude)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (nome, endereco, codigo_postal, telefone, email, latitude, longitude))
-        conn.commit()
+        try:
+            endereco = driver.find_element(By.CSS_SELECTOR, 'span[itemprop="streetAddress"]').text
+        except:
+            endereco = None
+
+        try:
+            codigo_postal_full = driver.find_element(By.CSS_SELECTOR, 'span[itemprop="postalCode"]').text
+            codigo_postal, localidade = codigo_postal_full.split(' ', 1)
+        except:
+            codigo_postal, localidade = None, None
+        
+        try:
+            latitude = driver.find_element(By.CSS_SELECTOR, 'div#pos-map').get_attribute('data-latitude')
+            longitude = driver.find_element(By.CSS_SELECTOR, 'div#pos-map').get_attribute('data-longitude')
+        except:
+            latitude, longitude = None, None
+
+        dados.append({
+            "Nome": nome,
+            "Morada": endereco,
+            "Codigo Postal": codigo_postal,
+            "Localidade": localidade,
+            "Latitude": latitude,
+            "Longitude": longitude
+        })
+        
         print(f"Loja {nome} inserida com sucesso.")
     except Exception as e:
         telefone = None
         print(f"Erro ao processar loja no link {url}: {e}")
 
-# Fechar conexões
-cursor.close()
-conn.close()
+df = pd.DataFrame(dados)
+df.to_csv("Intermache.csv", index=False, sep=";", encoding="utf-8-sig")
+
 driver.quit()
